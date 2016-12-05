@@ -1,0 +1,45 @@
+#!/usr/bin/env sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+
+# Uses options:-
+#   bond-give-a-chance 10	Works around an issue with wpa_supplicant and WiFi - see Alpine Linux's apk bonding implementation for more details
+#							Units are in seconds
+libertine_network_if_up_bonding_main()
+{
+	. /usr/lib/network.functions
+	
+	if core_variable_isUnsetOrEmpty IFACE; then
+		return 0
+	fi
+	local weAreConfiguringInterface="$IFACE"
+	
+	if core_variable_isUnsetOrEmpty IF_BOND_GIVE_A_CHANCE; then
+		return 0
+	fi
+		
+	local originalPrimaryInterface
+	IFS='' read -r originalPrimaryInterface < /sys/class/net/"$IFACE"/master/bonding/primary
+	libertine_network_sysfs "$weAreConfiguringInterface" "$weAreConfiguringInterface" primary
+
+	# Wait up to IF_BOND_GIVE_A_CHANCE seconds for the link to come up
+	local remainingSecondsToWait=$IF_BOND_GIVE_A_CHANCE
+	while [ "$remainingSecondsToWait" -gt 0 ]
+	do
+		if ip link show "$IFACE" | grep -s -q 'state UP'; then
+			break
+		fi
+		sleep 1
+		remainingSecondsToWait=$((remainingSecondsToWait - 1))
+	done
+	
+	libertine_network_sysfs "$originalPrimaryInterface" "$weAreConfiguringInterface" primary
+}
+
+libertine_network_if_up_bonding_main "$@"

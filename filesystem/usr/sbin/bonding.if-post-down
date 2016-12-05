@@ -1,0 +1,77 @@
+#!/usr/bin/env sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+
+# Uses options:-
+#   bond-primary  eth0   First slave in list becomes the primary; if none of the entries are slaves, then the primary is left unchanged and potentially invalid
+libertine_network_if_post_down_bonding_main()
+{
+	. /usr/lib/network.functions
+	
+	if core_variable_isUnsetOrEmpty IFACE; then
+		return 0
+	fi
+	local weAreConfiguringInterface="$IFACE"
+	
+	if [ -f /sys/class/net/"$weAreConfiguringInterface"/master/bonding/slaves ] ; then
+		printf '%s\n' '-'"$weAreConfiguringInterface" >/sys/class/net/"$weAreConfiguringInterface"/master/bonding/slaves
+
+		# The first slave in bond-primary found in current slaves becomes the primary.
+		# If no slave in bond-primary is found, then primary does not change and might be undefined if just removed.
+		
+		if ! core_variable_isUnsetOrEmpty IF_BOND_PRIMARY; then
+		local slaveInterface
+		# Quotes deliberately ommitted
+		IFS=' ' for slaveInterface in $IF_BOND_PRIMARY
+		do
+			if grep -s -q "\\<${slaveInterface}\\>" /sys/class/net/"$weAreConfiguringInterface"/master/bonding/slaves ; then
+				libertine_network_sysfs "$slave" "$weAreConfiguringInterface" primary
+				break
+			fi
+		done
+	fi
+	
+	# Finish here if we are not bringing down the bond master interface
+	if [ ! -f /sys/class/net/"$weAreConfiguringInterface"/bonding/slaves ]; then
+		return 0
+	fi
+	
+	local valuesToRemove
+	IFS='' read -r valuesToRemove </sys/class/net/"$weAreConfiguringInterface"/bonding/arp_ip_target
+	local valueToRemove
+	# Quotes deliberately ommitted
+	IFS=' ' for valueToRemove in $valuesToRemove
+	do
+		printf '%s\n' '-'"$valueToRemove" >/sys/class/net/"$weAreConfiguringInterface"/bonding/arp_ip_target
+	done
+	
+	# Remove the slaves of bond master interface
+	local slaveInterfaces
+	IFS='' read -r /sys/class/net/"$weAreConfiguringInterface"/bonding/slaves
+	local slaveInterface
+	# Quotes deliberately ommitted
+	IFS=' ' for slaveInterface in $slaveInterfaces
+	do
+		if grep -s -q "^$slave=" /var/run/ifstate; then
+			set --
+			if $libertine_network_isVerbose; then
+				set -- "$@" -v
+			fi
+			ifdown "$@" "$slaveInterface" || true
+		fi
+		
+		if [ -f /sys/class/net/"$slaveInterface"/master/bonding/slaves ]; then
+			printf '%s\n' '-'"$slaveInterface" 1>/sys/class/net/"$weAreConfiguringInterface"/bonding/slaves 2>/dev/null || true
+		fi
+	done
+
+	ip link set dev "$weAreConfiguringInterface" down || true
+}
+
+libertine_network_if_post_down_bonding_main "$@"

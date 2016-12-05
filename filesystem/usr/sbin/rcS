@@ -1,0 +1,810 @@
+#!/bin/sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+_libertine_rcS_hasBinaryInPath()
+{
+	local binary
+	command -v "$binary" 1>/dev/null 2>/dev/null
+}
+
+_libertine_rcS_errorMessage()
+{
+	local message="$1"
+
+	printf "ERROR: %s\n" "$message" 1>&2
+}
+
+_libertine_rcS_executeIfExistsAndIgnoreFailure()
+{
+	local commandToExecute="$1"
+	
+	if _libertine_rcS_hasBinaryInPath "$commandToExecute"; then
+		set +e
+		"$@"
+		local exitCode=$?
+		set -e
+		if [ $exitCode -ne 0 ]; then
+			_libertine_rcS_errorMessage "The command '$commandToExecute' $@ failed to execute (exit code was $exitCode)"
+		fi
+	else
+		_libertine_rcS_errorMessage "The command '$commandToExecute' does not exist"
+	fi
+}
+
+_libertine_rcS_mount()
+{
+	local type="$1"
+	local name="$2"
+	local mountPointFolderPath="$3"
+	local mountOptions="$4"
+	
+	if [ ! -d "$mountPointFolderPath" ]; then
+		_libertine_rcS_executeIfExistsAndIgnoreFailure mkdir -m 0755 -p "$mountPointFolderPath"
+	fi
+	
+	_libertine_rcS_executeIfExistsAndIgnoreFailure mount -t "$type" -o "$mountOptions" "$name" "$mountPointFolderPath"
+}
+
+libertine_rcS_redirectStandardOutAndStandardError()
+{
+	local logFolderPath='/var/log'
+	
+	if [ ! -d "$logFolderPath" ]; then
+		_libertine_rcS_executeIfExistsAndIgnoreFailure mkdir -m 0755 -p /var/log
+	fi
+	
+	printf '' >"$logFolderPath"/rcS.out.log || _libertine_rcS_errorMessage "Could not write to '$logFolderPath/rcS.out.log'"
+	_libertine_rcS_executeIfExistsAndIgnoreFailure chmod 0600 "$logFolderPath"/rcS.out.log
+	exec 1>>"$logFolderPath"/rcS.out.log || _libertine_rcS_errorMessage "Could not start logging stdout to '$logFolderPath/rcS.out.log'"
+	
+	printf '' >"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not write to '$logFolderPath/rcS.err.log'"
+	_libertine_rcS_executeIfExistsAndIgnoreFailure chmod 0600 "$logFolderPath"/rcS.err.log
+	exec 2>>"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not start logging stderr to '$logFolderPath/rcS.out.log'"
+}
+
+libertine_rcS_mountVirtualFilesystems()
+{
+	_libertine_rcS_mount proc proc /proc rw,nosuid,nodev,noexec,relatime
+	
+	_libertine_rcS_mount sysfs sys /sys rw,nosuid,nodev,noexec,relatime
+	
+	# requires CONFIG_DEVTMPFS
+	# requires CONFIG_DEVTMPFS_MOUNT
+	# otherwise use `mdev -s` to populate /dev from /sys (but this is a one-off static operation)
+	_libertine_rcS_mount devtmpfs devtmpfs /dev rw,nosuid,relatime,size=10240k,nr_inodes=504357,mode=755
+	
+	local ttyGid=5
+	if [ -f /etc/group ]; then
+		if _libertine_rcS_hasBinaryInPath awk; then
+			local x="$(awk -F: '$1 ~ /^tty$/ {print $3}' /etc/group)"
+			if [ -n "$x" ]; then
+				ttyGid="$x"
+			fi
+		fi
+	fi
+	_libertine_rcS_mount devpts devpts /dev/pts rw,nosuid,noexec,relatime,gid="$ttyGid",mode=620,ptmxmode=000
+	
+	_libertine_rcS_mount tmpfs shm /dev/shm rw,nosuid,nodev,noexec,relatime
+	
+	_libertine_rcS_mount tmpfs tmpfs /var/run rw,nodev,relatime,size=404416k,mode=755
+	
+	_libertine_rcS_mount mqueue mqueue /dev/mqueue rw,nosuid,nodev,noexec,relatime,mode=1777
+	
+	# requires CONFIG_SECURITYFS
+	_libertine_rcS_mount securityfs securityfs /sys/kernel/security rw,nosuid,nodev,noexec,relatime
+	
+	_libertine_rcS_mount binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc rw,nosuid,nodev,noexec,relatime
+	
+	_libertine_rcS_mount pstore pstore /sys/fs/pstore rw,nosuid,nodev,noexec,relatime
+}
+
+libertine_rcS_enableAllSwapDevices()
+{
+	if [ -s /etc/fstab ]; then
+		_libertine_rcS_executeIfExistsAndIgnoreFailure swapon -a -e >/dev/null
+	fi
+}
+
+libertine_rcS_mdev()
+{
+	if [ -d /proc/sys/kernel ]; then
+		if _libertine_rcS_hasBinaryInPath mdev; then
+			local pathToMdev="$(command -v mdev)"
+			printf '%s\n' "$pathToMdev" >/proc/sys/kernel/hotplug || _libertine_rcS_errorMessage "Could not write '$pathToMdev' to /proc/sys/kernel/hotplug"
+		fi
+	fi
+}
+
+libertine_rcS_logKernelToTty2()
+{
+	_libertine_rcS_executeIfExistsAndIgnoreFailure setlogcons 2
+}
+
+libertine_rcS_installKeymap()
+{
+	local keymapFilePath=/etc/console-keymap.bmp
+	
+	if [ -s "$keymapFilePath" ]; then
+		if _libertine_rcS_hasBinaryInPath loadkmap; then
+			loadkmap <"$keymapFilePath" || _libertine_rcS_errorMessage "Could not load key map '$keymapFilePath'"
+		fi
+	fi
+}
+
+libertine_rcS_installConsoleFontAndTrans()
+{
+	local consoleFontFilePath=/etc/console-font.psfu
+	local consoleTransFilePath=/etc/console-mapping.trans
+	
+	if [ -s "$consoleFontFilePath" ]; then
+		if [ -s "$consoleTransFilePath" ]; then
+			local tty
+			for tty in /dev/tty* /dev/tty
+			do
+				if [ -c "$tty" ]; then
+					_libertine_rcS_executeIfExistsAndIgnoreFailure setfont "$consoleFontFilePath" -M "$consoleTransFilePath" -C "$tty"
+				fi
+			done
+		fi
+	fi
+}
+
+libertine_rcS_setTerminalEncodingToUtf8()
+{
+	local maximumTtyNumber=5
+	local ttyNumber=1
+	set +f
+	for tty in /dev/tty*
+	do
+		if [ ! -c "$tty" ]; then
+			continue
+		fi
+		
+		case "$tty" in
+			
+			/dev/tty|/dev/tty0)
+				continue
+			;;
+			
+		esac
+		
+		printf "\033%s" 'UTF-8' >"$tty" || _libertine_rcS_errorMessage "Could not set terminal '$tty' encoding to UTF-8"
+	done
+}
+
+libertine_rcS_loadBinFmtDefinitions()
+{
+	if [ ! -e /proc/sys/fs/binfmt_misc/register ]; then
+		return 0
+	fi
+	
+	# https://www.kernel.org/doc/Documentation/binfmt_misc.txt
+	local binFmtFilePath
+	set +f
+	for binFmtFilePath in /etc/binfmt.d/*.binfmt
+	do
+		set -f
+		if [ ! -f "$binFmtFilePath" ]; then
+			continue
+		fi
+		if [ ! -s "$binFmtFilePath" ]; then
+			continue
+		fi
+		
+		local lineNumber=0
+		local line
+		while read -r line
+		do
+			lineNumber=$((lineNumber + 1))
+			case "$line" in
+				
+				\#*)
+					continue
+				;;
+				
+				\;*)
+					continue
+				;;
+				
+			esac
+			
+			printf '%s\n' "$line" >/proc/sys/fs/binfmt_misc/register || _libertine_rcS_errorMessage "Could not write binfmt definition line number (one based) $lineNumber in '$binFmtFilePath' to /proc/sys/fs/binfmt_misc/register"
+		done <"$binFmtFilePath"
+	done
+	set -f
+}
+
+libertine_rcS_readDefaults()
+{
+	local keepTrying
+	
+	
+	keepTrying=true
+	if [ -s /etc/hostname ]; then
+		if _libertine_rcS_hasBinaryInPath cat; then
+			libertine_rcS_hostName="$(cat /etc/hostname)"
+			keepTrying=false
+		fi
+	fi
+	if $keepTrying; then
+		if _libertine_rcS_hasBinaryInPath hostname; then
+			local x="$(hostname)"
+			if [ -n "$hostname" ]; then
+				libertine_rcS_hostName="$x"
+				keepTrying=false
+			fi
+		fi
+	fi
+	
+	
+	keepTrying=true
+	if [ -s /etc/dnsdomainname ]; then
+		if _libertine_rcS_hasBinaryInPath cat; then
+			libertine_rcS_dnsDomainName="$(cat /etc/dnsdomainname)"
+			keepTrying=false
+		fi
+	fi
+	if $keepTrying; then
+		if [ -s /etc/resolv.conf ]; then
+			if _libertine_rcS_hasBinaryInPath awk; then
+				local x
+				x="$(awk '$1 ~ /^domain$/ {print $2}' /etc/resolv.conf)"
+				if [ -n "$x" ]; then
+					libertine_rcS_dnsDomainName="$x"
+					keepTrying=false
+				fi
+			fi
+		fi
+	fi
+	if $keepTrying; then
+		if _libertine_rcS_hasBinaryInPath dnsdomainname; then
+			local x
+			x="$(dnsdomainname)"
+			if [ -n "$x" ]; then
+				libertine_rcS_dnsDomainName="$x"
+				keepTrying=false
+			fi
+		fi
+	fi
+	if $keepTrying; then
+		if _libertine_rcS_hasBinaryInPath hostname; then
+			local x
+			x="$(hostname -d)"
+			if [ -n "$x" ]; then
+				libertine_rcS_dnsDomainName="$x"
+				keepTrying=false
+			fi
+		fi
+	fi
+	
+	
+	if [ -s /etc/resolv.conf ]; then
+		local left
+		local right
+		while read -r left right
+		do
+			case "$left" in
+				
+				nameserver)
+					if [ -z "$resolvConfNameServers" ]; then
+						libertine_rcS_nameServers="$right"
+					else
+						libertine_rcS_nameServers="$resolvConfNameServers $right"
+					fi
+				;;
+				
+				option)
+					if [ -z "$libertine_rcS_resolvConfOptions" ];then
+						libertine_rcS_resolvConfOptions="$right"
+					else
+						libertine_rcS_resolvConfOptions="$libertine_rcS_resolvConfOptions $right"
+					fi
+				;;
+				
+			esac
+			
+		done </etc/resolv.conf
+	fi
+	
+	
+	if [ -z "$libertine_rcS_nameServers" ]; then
+		libertine_rcS_nameServers='8.8.4.4 8.8.8.8 2001:4860:4860::8844 2001:4860:4860::8888'
+	fi
+}
+
+_libertine_rcS_kernelCommandLine_console()
+{
+	local consoleArguments="$1"
+
+	local tty=${1%,*}
+	local baudRate=${1#*,}
+	local isSerialConsole=false
+	case "$tty" in
+		
+		ttyS*)
+			if [ "$speeed" = "$1" ]; then
+				baudRate=9600
+			fi
+			isSerialConsole=true
+		;;
+		
+		tty0)
+			# Current terminal is special; it doesn't belong in inittab or securetty
+			return 0
+		;;
+		
+		tty?)
+			# If does not exist, do not add
+			if [ ! -e /dev/"$tty" ]; then
+				return 0
+			fi
+			
+			if [ "$speeed" = "$1" ]; then
+				baudRate=38400
+			fi
+		;;
+		
+		tty??)
+			# If does not exist, do not add
+			if [ ! -e /dev/"$tty" ]; then
+				return 0
+			fi
+			
+			if [ "$speeed" = "$1" ]; then
+				baudRate=38400
+			fi
+		;;
+		
+		*)
+			return 0
+		;;
+		
+	esac
+	
+	# Add to inittab if missing
+	if [ -s /etc/inittab ]; then
+		if _libertine_rcS_hasBinaryInPath grep; then
+			if ! grep -s -q '^'"$tty:" /etc/inittab; then
+				if _libertine_rcS_hasBinaryInPath getty 1>/dev/null 2/dev/null; then
+					local pathToGetty="$(command -v getty)"
+
+					if $isSerialConsole; then
+						local setCLOCAL=-L
+						local term=vt102
+					
+						#ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100
+						printf '%s::askfirst:%s %s %s %s %s' "$tty" "$pathToGetty" "$setCLOCAL" "$baudRate" "$tty" "$term" >>/etc/inittab || _libertine_rcS_errorMessage "Could not write to /etc/inittab"
+					else
+						#tty1::askfirst:/usr/sbin/getty 38400 tty1
+						printf '%s::askfirst:%s %s %s' "$tty" "$pathToGetty" "$baudRate" "$tty" >>/etc/inittab || _libertine_rcS_errorMessage "Could not write to /etc/inittab"
+					fi
+					
+					# Make init reload /etc/inittab
+					set +e
+					kill -SIGHUP $PPID
+					set -e
+				fi
+			fi
+		fi
+	fi
+		
+	# Add to securetty if missing
+	if [ -s /etc/securetty ]; then
+		if _libertine_rcS_hasBinaryInPath grep; then
+			if ! grep -s -q '^'"$tty"'$' /etc/securetty; then
+				printf '%s\n' "$tty" >>/etc/securetty || _libertine_rcS_errorMessage "Could not write to /etc/securetty"
+			fi
+		fi
+	fi
+}
+
+_libertine_rcS_kernelCommandLine_ll_hostname()
+{
+	local ll_hostname="$1"
+	
+	if [ -n "$ll_hostname" ]; then
+		libertine_rcS_hostName="$ll_hostname"
+	fi
+}
+
+_libertine_rcS_kernelCommandLine_ll_domain()
+{
+	local ll_domain="$1"
+	
+	if [ -n "$ll_domain" ]; then
+		libertine_rcS_dnsDomainName="$ll_domain"
+	fi
+}
+
+_libertine_rcS_kernelCommandLine_ll_nameservers()
+{
+	local ll_nameservers="$1"
+	
+	local nameserversHaveBeenReplaced='false'
+	
+	local nameserver=''
+	local remainder="$ll_nameservers"
+	
+	while [ -n "$remainder" ]
+	do
+		while IFS=',' read -r nameserver remainder
+		do
+			break
+		done <<-EOF
+			${remainder}
+		EOF
+		
+		if [ -n "$nameserver" ]; then
+			if $nameserversHaveBeenReplaced; then
+				libertine_rcS_nameServers="$libertine_rcS_nameServers $nameserver"
+			else
+				libertine_rcS_nameServers="$nameserver"
+				nameserversHaveBeenReplaced=true
+			fi
+		fi
+	done
+}
+
+_libertine_rcS_kernelCommandLine_ll_options()
+{
+	local ll_options="$1"
+	
+	local optionsHaveBeenReplaced='false'
+	
+	local option
+	local remainder="$ll_nameservers"
+	
+	while [ -n "$remainder" ]
+	do
+		while IFS=',' read -r option option
+		do
+			break
+		done <<-EOF
+			${remainder}
+		EOF
+		
+		case "$option" in
+			
+			timeout:*|attempts:*|rotate|inet6|edns0)
+				if $optionsHaveBeenReplaced; then
+					libertine_rcS_resolvConfOptions="$libertine_rcS_resolvConfOptions $option"
+				else
+					libertine_rcS_resolvConfOptions="$option"
+					optionsHaveBeenReplaced=true
+				fi
+			;;
+			
+		esac
+		
+	done
+}
+
+libertine_rcS_kernelCommandLine()
+{
+	local isSingleUserMode=false
+	set -- $(cat /proc/cmdline)
+	
+	local commandLineKeyValue
+	for commandLineKeyValue in "$@"
+	do
+		case "$commandLineKeyValue" in
+			
+			s|single|1)
+				# We ignore single user mode; it's a potential security hole waiting to happen
+				:
+			;;
+			
+			quiet)
+				_libertine_rcS_executeIfExistsAndIgnoreFailure dmesg -n 1
+			;;
+			
+			debug)
+				_libertine_rcS_executeIfExistsAndIgnoreFailure dmesg -n 8
+			;;
+			
+			console=*)
+				_libertine_rcS_kernelCommandLine_console "${commandLineKeyValue#console=}"
+			;;
+			
+			# This is an option unique to Libertine Linux
+			ll_hostname=*)
+				_libertine_rcS_kernelCommandLine_ll_hostname "${commandLineKeyValue#ll_hostname=}"
+			;;
+			
+			# This is an option unique to Libertine Linux
+			ll_domain=*)
+				_libertine_rcS_kernelCommandLine_ll_domain "${commandLineKeyValue#ll_domain=}"
+			;;
+			
+			# This is an option unique to Libertine Linux
+			ll_nameservers=*)
+				_libertine_rcS_kernelCommandLine_ll_nameservers "${commandLineKeyValue#ll_nameservers=}"
+			;;
+			
+			# This is an option unique to Libertine Linux
+			ll_options=*)
+				_libertine_rcS_kernelCommandLine_ll_options "${commandLineKeyValue#ll_options=}"
+			;;
+			
+		esac
+		
+	done
+}
+
+libertine_rcS_writeNetworkDetails()
+{
+	printf '%s\n' "$libertine_rcS_hostName" >/etc/hostname || _libertine_rcS_errorMessage "Could not write to /etc/hostname"
+		
+	printf '%s\n' "$libertine_rcS_dnsDomainName" >/etc/dnsdomainname || _libertine_rcS_errorMessage "Could not write to /etc/dnsdomainname"
+	
+	{
+		printf 'search %s\n' "$libertine_rcS_dnsDomainName"
+		printf 'domain %s\n' "$libertine_rcS_dnsDomainName"
+		
+		IFS=' ' set -- $libertine_rcS_nameServers
+		local nameServer
+		for nameServer in "$@"
+		do
+			printf 'nameserver %s\n' "$nameserver"
+		done
+		
+		IFS=' ' set -- $libertine_rcS_resolvConfOptions
+		local option
+		for option in "$@"
+		do
+			printf 'option %s\n' "$option"
+		done
+		
+	} >/etc/resolv.conf
+	
+	_libertine_rcS_executeIfExistsAndIgnoreFailure hostname "$libertine_rcS_hostName"
+	
+	_libertine_rcS_executeIfExistsAndIgnoreFailure dnsdomainname "$libertine_rcS_dnsDomainName"
+}
+
+libertine_rcS_setSysctlParameters()
+{
+	local sysctlFilePath
+	set +f
+	for sysctlFilePath in /etc/sysctl.conf.d/*.conf
+	do
+		set -f
+		
+		if [ ! -e "$sysctlFilePath" ]; then
+			continue
+		fi
+		
+		if [ ! -s "$sysctlFilePath" ]; then
+			continue
+		fi
+		
+		_libertine_rcS_executeIfExistsAndIgnoreFailure sysctl -q -e -p "$sysctlFilePath"
+	done
+	set -f
+}
+
+libertine_rcS_enableNetworking()
+{
+	if [ -s /etc/network/interfaces ]; then
+		_libertine_rcS_executeIfExistsAndIgnoreFailure ifup -a -v -f -i /etc/network/interfaces 1>&2
+	fi
+}
+
+libertine_rcS_staticRoutes()
+{
+	if ! command -v ip 1>/dev/null 2>/dev/null; then
+		return 0
+	fi
+	
+	set +f
+	local file
+	for file in /etc/network/staticroutes.d/*.staticroutes
+	do
+		set -f
+		if [ ! -f "$file" ]; then
+			continue
+		fi
+		if [ ! -s "$file" ]; then
+			continue
+		fi
+		
+		local line
+		while IFS='' read -r line
+		do
+			if [ -z "$line" ]; then
+				continue
+			fi
+			
+			case "$line" in
+				
+				'#'*)
+					continue
+				;;
+				
+			esac
+			
+			# Quotes deliberately ommitted
+			IFS=' ' set -- $line
+			if [ $# -lt 3 ]; then
+				continue
+			fi
+			
+			_libertine_rcS_executeIfExistsAndIgnoreFailure ip route add "$@" || true
+		done
+	done
+	set -f
+}
+
+libertine_rcS_trafficControl()
+{
+	if ! command -v tc 1>/dev/null 2>/dev/null; then
+		return 0
+	fi
+	
+	local variant
+	for variant in qdisc class filter
+	do
+		local action
+		for action in add
+		do
+			local file
+			set +f
+			for file in /etc/network/traffic-control/"$variant"/"$action".d/*."$action"
+			do
+				set -f
+				if [ ! -f "$file" ]; then
+					continue
+				fi
+				if [ ! -s "$file" ]; then
+					continue
+				fi
+				
+				local line
+				while IFS='' read -r line
+				do
+					if [ -z "$line" ]; then
+						continue
+					fi
+					
+					case "$line" in
+						
+						'#'*)
+							continue
+						;;
+						
+					esac
+					
+					# Quotes deliberately ommitted
+					IFS=' ' set -- $line
+					if [ $# -eq 0 ]; then
+						continue
+					fi
+					
+					_libertine_rcS_executeIfExistsAndIgnoreFailure tc "$variant" "$action" "$@" || true
+				done <"$"
+			done
+			set -f
+		done
+	done
+}
+
+libertine_rcS_loadRandomSeed()
+{
+	# This will currently be lost, but we could look at storing it in BIOS or EFI nvram
+	_libertine_rcS_executeIfExistsAndIgnoreFailure wget -q -O - 'https://www.random.org/strings/?num=1&len=256&digits=on&upperalpha=on&loweralpha=on&unique=on&format=plain&rnd=new' >/dev/random || _libertine_rcS_errorMessage "Could not seed random number generator"
+}
+
+libertine_rcS_lockDownAllHomeFoldersAndSrvFolders()
+{
+	set +f
+	local folderPath
+	for folderPath in /home/* /srv/*
+	do
+		set -f
+		
+		if [ ! -d "$folderPath" ]; then
+			continue
+		fi
+		
+		_libertine_rcS_executeIfExistsAndIgnoreFailure chmod -R u=rwX,g=,o= "$folderPath"
+	done
+	set -f
+}
+
+libertine_rcS_executeAllStartScripts()
+{
+	local scriptFilePath
+	set +f
+	for scriptFilePath in /etc/init.d/S??*.init
+	do
+		set -f
+		
+		if [ ! -f "$scriptFilePath" ]; then
+			continue
+		fi
+		
+		if [ ! -s "$scriptFilePath" ]; then
+			continue
+		fi
+
+		(
+			trap - INT QUIT TSTP
+			set -- start
+			. "$scriptFilePath" start || _libertine_rcS_errorMessage "Could not source start script '$scriptFilePath'"
+		)
+		
+	done
+	set -f
+}
+
+libertine_rcS_finished()
+{
+	printf 'FINISHED\n' 1>&2
+}
+
+libertine_rcS()
+{
+	local libertine_rcS_hostName='machine'
+	local libertine_rcS_dnsDomainName='localdomain'
+	local libertine_rcS_nameServers=''
+	local libertine_rcS_resolvConfOptions=''
+	
+	libertine_rcS_redirectStandardOutAndStandardError
+		
+	libertine_rcS_mountVirtualFilesystems
+	libertine_rcS_enableAllSwapDevices
+	
+	libertine_rcS_mdev
+	libertine_rcS_logKernelToTty2
+	
+	libertine_rcS_installKeymap
+	libertine_rcS_installConsoleFontAndTrans
+	libertine_rcS_setTerminalEncodingToUtf8
+	
+	libertine_rcS_loadBinFmtDefinitions
+	
+	libertine_rcS_readDefaults
+	
+	libertine_rcS_kernelCommandLine
+	
+
+	libertine_rcS_setSysctlParameters
+	libertine_rcS_enableNetworking
+	
+	libertine_rcS_staticRoutes
+	libertine_rcS_trafficControl
+
+	# needs networking
+	libertine_rcS_loadRandomSeed
+	
+	libertine_rcS_lockDownAllHomeFoldersAndSrvFolders
+	
+	libertine_rcS_executeAllStartScripts
+	libertine_rcS_finished
+}
+
+export PATH='/usr/sbin:/sbin:/usr/bin:/bin'
+export LOGNAME='root'
+export USER='root'
+export HOME='/home/root'
+export SHELL='/bin/sh'
+export LANG='en_US.UTF-8'
+export LANGUAGE=en_US
+export LC_COLLATE="$LANG"
+export LC_CTYPE="$LANG"
+export LC_MESSAGES="$LANG"
+export LC_MONETARY="$LANG"
+export LC_NUMERIC="$LANG"
+export LC_TIME="$LANG"
+export LC_ALL=""
+export PAGER=less
+export PS1='\h:\w\$ '
+umask 022
+
+libertine_rcS "$@"

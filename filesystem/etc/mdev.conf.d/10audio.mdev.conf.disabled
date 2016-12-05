@@ -1,0 +1,14 @@
+# alsa sound devices and audio stuff
+pcm.*		root:audio 0660	=snd/
+control.*	root:audio 0660	=snd/
+midi.*		root:audio 0660	=snd/
+seq		root:audio 0660	=snd/
+timer		root:audio 0660	=snd/
+
+adsp		root:audio 0660 >sound/
+audio		root:audio 0660 >sound/
+dsp		root:audio 0660 >sound/
+mixer		root:audio 0660 >sound/
+sequencer.*	root:audio 0660 >sound/
+
+SUBSYSTEM=sound;.*	root:audio 0660

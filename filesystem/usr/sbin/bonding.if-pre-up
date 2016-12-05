@@ -1,0 +1,233 @@
+#!/usr/bin/env sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+
+libertine_network_bringUpInterfaceOnce()
+{
+	local interface="$1"
+	local ifStateFilePath="$2"
+	local weAreConfiguringInterface="$3"
+	
+	if [ "$interface" = "$weAreConfiguringInterface" ]; then
+		return 0
+	fi
+
+	if grep -q '^'"${interface}"'=' "$ifStateFilePath"; then
+		return 0
+	fi
+
+	if ifup -n "$interface" 1>/dev/null 2>/dev/null; then
+		set --
+		if $libertine_network_isVerbose; then
+			set -- -v
+		fi
+		ifup "$@" "$interface"
+	fi
+}
+
+libertine_network_addBondMasterInterface()
+{
+	local bondMasterInterface="$1"
+
+	if [ -f /sys/class/net/"$bondMasterInterface"/bonding/slaves ]; then
+		return 0
+	fi
+	
+	local sysFilePath=/sys/class/net/bonding_masters
+	
+	# Won't ordinarily be required, as bonding will be compiled in
+	libertine_network_ensureModuleLoaded '-r' "$sysFilePath" bonding
+	
+	if ! grep -s -q "\\<${bondMasterInterface}\\>" "$sysFilePath"; then
+		printf '%s\n' "+${bondMasterInterface}" >"$sysFilePath"
+	fi
+}
+
+_libertine_network_configureBondMasterInterfaceValue()
+{
+	local weAreConfiguringInterface="$1"
+	local name="$2"
+	local sysFileName="$3"
+	
+	local variableName=IF_BOND_"$name"
+	
+	if core_variable_isUnset "$variableName"; then
+		return 0
+	fi
+	
+	local core_variable_indirectValue_result
+	core_variable_indirectValue "$variableName"
+	libertine_network_sysfs "$core_variable_indirectValue" "$weAreConfiguringInterface" "$sysFileName"
+}
+
+libertine_network_configureBondMasterInterface()
+{
+	local bondMasterInterface="$1"
+	local weAreConfiguringInterface="$2"
+	
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" ARP_INTERVAL arp_interval
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" ARP_VALIDATE arp_validate
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" DOWNDELAY downdelay
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" FAIL_OVER_MAC fail_over_mac
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" LACP_RATE lacp_rate
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" MIIMON miimon
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" MODE mode
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" UPDELAY updelay
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" USE_CARRIER use_carrier
+	_libertine_network_configureBondMasterInterfaceValue "$weAreConfiguringInterface" XMIT_HASH_POLICY xmit_hash_policy
+	
+	if core_variable_isSet IF_BOND_ARP_IP_TARGET; then
+		libertine_network_sysfsAdd "$bondMasterInterface" arp_ip_target "$weAreConfiguringInterface" "$IF_BOND_ARP_IP_TARGET"
+	fi
+}
+
+libertine_network_addBondSlaveInterfaces()
+{
+	local bondMasterInterface="$1"
+	local ifStateFilePath="$2"
+	local weAreConfiguringInterface="$3"
+	
+	if core_variable_isUnsetOrEmpty IF_BOND_SLAVES; then
+		# A legacy option alias of bond-slaves
+		if core_variable_isUnsetOrEmpty IF_SLAVES;
+			unset IF_SLAVES
+			local slaveDirective='all'
+		else
+			local slaveDirective="$IF_SLAVES"
+		fi
+	else
+		local slaveDirective="$IF_BOND_SLAVES"
+	fi
+	
+	local wasInferred=false
+	case "$slaveDirective" in
+		
+		none)
+			set --
+		;;
+		
+		all)
+			# Double quotes deliberately ommitted
+			IFS=' ' set -- $(sed -n -e 's/ *\(eth[^:]*\):.*/\1/p' /proc/net/dev)
+			wasInferred=true
+		;;
+		
+		*)
+			# Double quotes deliberately ommitted
+			IFS=' ' set -- $slaveDirective
+		;;
+		
+	esac
+	
+	local slaveInterface
+	for slaveInterface in "$@"
+	do
+		if $wasInferred; then
+			if grep -q '^'"$slaveInterface"'=' "$ifStateFilePath"; then
+				libertine_network_message "Slave device '$slaveInterface' has already been configured"
+				continue
+			fi
+		fi
+
+		ip link set "$slaveInterface" down 2>/dev/null
+
+		if libertine_network_sysfsAdd "$bondMasterInterface" slaves "$weAreConfiguringInterface" "$slaveInterface" 2>/dev/null; then
+			libertine_network_bringUpInterfaceOnce "$slaveInterface" "$ifStateFilePath" "$weAreConfiguringInterface"
+		else
+			libertine_network_message "Could not bond slave device '$slaveInterface' to bond master device '$bondMasterInterface'"
+		fi
+	done
+}
+
+libertine_network_configureBondSlavePrimaryInterface()
+{
+	local bondMasterInterface="$1"
+
+	if core_variable_isUnsetOrEmpty IF_BOND_PRIMARY; then
+		return 0
+	fi
+
+	local slaveInterface
+	# Quotes deliberately ommitted
+	IFS=' ' for slaveInterface in $IF_BOND_PRIMARY
+	do
+		if grep -s -q "\\<${slaveInterface}\\>" /sys/class/net/"$bondMasterInterface"/bonding/slaves ; then
+			libertine_network_sysfs "$slaveInterface" primary
+			break
+		fi
+	done
+}
+
+libertine_network_configureBondSlaveActiveInterface()
+{
+	if core_variable_isUnsetOrEmpty IF_BOND_ACTIVE_SLAVE; then
+		return 0
+	fi
+	
+	local activeSlaveDevice="$IF_BOND_ACTIVE_SLAVE"
+	
+	# The active slave interface MUST be up before trying to bond it
+	ip link set "$activeSlaveDevice" up
+	libertine_network_sysfs "$activeSlaveDevice" active_slave
+}
+
+# Uses options:-
+#   bond-master eth0		Master interface to which slaves are added
+#   bond-mode
+#   bond-slaves eth0 eth1	List of slaves (previously was called 'slaves', and still is in Debian)
+#   slaves					Legacy alias of bond-slaves
+#   bond-primary ethX eth1	First extant device in this option that is a bond slave device becomes the primary device
+#   bond-active-slave eth3	Which slave device is active
+#   bond-arp-interval
+#   bond-arp-ip-target
+#   bond-arp-validate
+#   bond-downdelay
+#   bond-fail-over-mac
+#   bond-lacp-rate
+#   bond-miimon
+#   bond-mode
+#   bond-updelay
+#   bond-use-carrier
+#   bond-xmit-hash-policy
+libertine_network_if_pre_up_bonding_main()
+{
+	. /usr/lib/network.functions
+	
+	if core_variable_isUnsetOrEmpty IFACE; then
+		return 0
+	fi
+	local weAreConfiguringInterface="$IFACE"
+		
+	local bondMasterInterface
+	if core_variable_isUnsetOrEmpty IF_BOND_MASTER; then
+		bondMasterInterface="$weAreConfiguringInterface"
+		
+		if core_variable_isUnsetOrEmpty IF_BOND_SLAVES; then
+			
+			# slaves is a legacy option alias of bond-slaves
+			if core_variable_isUnsetOrEmpty IF_SLAVES; then
+				return 0
+			fi
+		fi
+		
+	else
+		bondMasterInterface="$IF_BOND_MASTER"
+		if [ ! -e /sys/class/net/"$weAreConfiguringInterface"/master ]; then
+			libertine_network_bringUpInterfaceOnce "$bondMasterInterface" "$ifStateFilePath" "$weAreConfiguringInterface"
+		fi
+	fi
+	
+	libertine_network_addBondMasterInterface "$bondMasterInterface"
+	libertine_network_configureBondMasterInterface "$bondMasterInterface" "$weAreConfiguringInterface"
+	libertine_network_addBondSlaveInterfaces "$bondMasterInterface" /var/run/ifstate "$weAreConfiguringInterface"
+	libertine_network_configureBondSlavePrimaryInterface "$bondMasterInterface"
+	libertine_network_configureBondSlaveActiveInterface
+}
+
+libertine_network_if_pre_up_main "$@"

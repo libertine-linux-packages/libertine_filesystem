@@ -1,0 +1,136 @@
+#!/bin/sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+# We should be called with some of the following environment variables set, but only for bound / renew and nak
+#  interface
+#  ip
+#  mask
+#  siaddr
+#  sname (DHCP server name)
+#  boot_file
+#  subnet
+# See also https://git.busybox.net/busybox/tree/networking/udhcp/common.c
+
+# Unknown DHCP options are exported as optNNN= for 0 to 255
+
+_udhcpc_default_script_add()
+{
+	set -- addr add "$ip"/"$mask"
+	if ! core_variable_isUnsetOrEmpty broadcast; then
+		set -- "$@" broadcast "$broadcast"
+	fi
+	ip "$@" dev "$interface"
+}
+
+_udhcpc_default_script_flush()
+{
+	ip addr flush dev "$interface"
+}
+
+_udhcpc_default_script_calculateMetric()
+{
+	local index="$1"
+
+	local baseMetric
+	# Is WIFI?
+	if [ -e /sys/class/net/"$interface"/phy80211 ]; then
+		baseMetric=300
+	else
+		baseMetric=200
+	fi
+	
+	local interfaceIndex
+	if [ -s /sys/class/net/$interface/ifindex ]; then
+		interfaceIndex="$(cat /sys/class/net/$interface/ifindex)"
+	else
+		interfaceIndex="$(ip link show dev "$interface" | head -n 1 | cut -d: -f1)"
+	fi
+	
+	printf '%s' $(( index + baseMetric + $(if_index) ))
+}
+
+_udhcpc_default_script_routes()
+{
+	if core_variable_isUnsetOrEmpty router; then
+		return 0
+	fi
+	
+	# Loop until interface is up
+	while ip route del default via dev "$interface" 2>/dev/null
+	do
+		sleep 1 || true
+	done
+	
+	local gateway
+	local index=0
+	for gateway in $router
+	do
+		local calculatedMetric="$(_udhcpc_default_script_calculateMetric "$index")"
+		ip route add 0.0.0.0/0 via "$gateway" dev "$interface" metric "$calculatedMetric"
+		index=$(( index + 1 ))
+	done
+}
+
+_udhcpc_default_script_hostNameAndDnsDomainName()
+{
+	if core_variable_isSet hostname; then
+		printf '%s\n' "$hostname" >/etc/hostname || true
+		hostname "$hostname" || true
+	fi
+	
+	if core_variable_isSet domain; then
+		printf '%s\n' "$domain" >/etc/dnsdomainname || true
+		dnsdomainname "$domain" || true
+	fi
+}
+
+_udhcpc_default_script_resolvconf()
+{
+	{
+		if core_variable_isSet domain; then
+			printf 'domain %s\n' "$domain"
+		fi
+		
+		if core_variable_isSet search; then
+			printf 'search %s\n' "$search"
+		fi
+		
+		if core_variable_isSet dns; then
+			local dnsServer
+			for dnsServer in $dns
+			do
+				printf 'nameserver %s\n' "$dnsServer"
+			done
+		fi
+		
+	} >/etc/resolv.conf
+}
+
+udhcpc_default_script_main()
+{
+	export HOME='/home/root'
+	export PATH='/usr/sbin:/usr/bin'
+		
+	if [ $# -eq 0 ]; then
+		printf '%s\n' "udhcpc-default-script:WARNING:Invalid use of udhcpc-default-script" 1>&2
+		exit 1
+	fi
+		
+	local cause="$1"
+	shift 1
+	
+	. /usr/lib/core.functions
+	
+	local snippet
+	for snippet in /etc/network/udhcpc/"$cause".d/*."$cause"
+	do
+		if [ -s "$snippet" ]; then
+			. "$snippet" || true
+			udhcpc_default_script_${cause} "$@" || true
+		fi
+	done
+}
+
+udhcpc_default_script_main "$@"

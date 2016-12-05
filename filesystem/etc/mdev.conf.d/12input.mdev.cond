@@ -1,0 +1,4 @@
+event[0-9]+	root:root 0640 =input/
+mice		root:root 0640 =input/
+mouse[0-9]	root:root 0640 =input/
+ts[0-9]		root:root 0600 =input/

@@ -1,0 +1,91 @@
+#!/usr/bin/env sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+
+# Uses options:-
+#   vlan-id
+#	vlan-raw-device
+libertine_network_if_post_down_vlan_main()
+{
+	. /usr/lib/network.functions
+	
+	if core_variable_isUnsetOrEmpty IFACE; then
+		return 0
+	fi
+	local weAreConfiguringInterface="$IFACE"
+
+	if ! command -v vconfig 1>/dev/null 2>/dev/null; then
+		libertine_network_message "vconfig is missing from PATH, can not disable VLANs"
+		return 0
+	fi
+	
+	case "$weAreConfiguringInterface" in
+
+		*#*)
+			return 0
+		;;
+
+		*:*)
+			return 0
+		;;
+		
+		vlan*.*)
+			return 0
+		;;
+		
+		vlan*)
+			local unparsedVlanId="${weAreConfiguringInterface#vlan}"
+			if core_variable_isSet IF_VLAN_ID; then
+				unparsedVlanId="$IF_VLAN_ID"
+			fi
+			
+			if core_variable_isUnsetOrEmpty IF_VLAN_RAW_DEVICE; then
+				# Slight variation from if-pre-up; we don't fail
+				return 0
+			fi
+			local vlanRawDevice="$IF_VLAN_RAW_DEVICE"
+		;;
+		
+		*.*)
+			local unparsedVlanId="${weAreConfiguringInterface##*.}"
+			if core_variable_isSet IF_VLAN_ID; then
+				unparsedVlanId="$IF_VLAN_ID"
+			fi
+			
+			local vlanRawDevice="${weAreConfiguringInterface%.*}"
+			if core_variable_isSet IF_VLAN_RAW_DEVICE; then
+				vlanRawDevice="$IF_VLAN_RAW_DEVICE"
+			fi
+		;;
+		
+		*)
+			if core_variable_isUnsetOrEmpty IF_VLAN_ID; then
+				return 0
+			fi
+			local unparsedVlanId="$IF_VLAN_ID"
+			
+			if core_variable_isUnsetOrEmpty IF_VLAN_RAW_DEVICE; then
+				return 0
+			fi
+			local vlanRawDevice="$IF_VLAN_RAW_DEVICE"
+		;;
+	esac
+	
+	if [ -z "$unparsedVlanId" ]; then
+		return 0
+	fi
+	
+	if [ -z "$vlanRawDevice" ]; then
+		return 0
+	fi
+	
+	vconfig rem "$weAreConfiguringInterface" || true
+}
+
+libertine_network_if_post_down_vlan_main "$@"

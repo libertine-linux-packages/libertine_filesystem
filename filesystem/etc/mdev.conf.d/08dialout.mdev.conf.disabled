@@ -1,0 +1,5 @@
+ttyLTM[0-9]	root:dialout 0660 @ln -sf $MDEV modem
+ttySHSF[0-9]	root:dialout 0660 @ln -sf $MDEV modem
+slamr		root:dialout 0660 @ln -sf $MDEV slamr0
+slusb		root:dialout 0660 @ln -sf $MDEV slusb0
+fuse		root:root  0666

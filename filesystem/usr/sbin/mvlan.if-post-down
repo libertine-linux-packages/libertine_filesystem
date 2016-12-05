@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+
+# Uses options:-
+#   mvlan-raw-device  RAW_DEVICE
+libertine_network_if_post_down_mvlan_main()
+{
+	. /usr/lib/network.functions
+	
+	if core_variable_isUnsetOrEmpty IFACE; then
+		return 0
+	fi
+	local weAreConfiguringInterface="$IFACE"
+	
+	local libertine_network_mvlan_setRawDevice_result
+	libertine_network_mvlan_setRawDeviceOrExitOk "$weAreConfiguringInterface"
+	ip link del link dev "$weAreConfiguringInterface"
+}
+
+libertine_network_if_post_down_mvlan_main "$@"

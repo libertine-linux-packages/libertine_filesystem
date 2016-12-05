@@ -1,0 +1,108 @@
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+variant=filesystem
+
+depends tz kbd libertine_filesystem_hosts libertine_filesystem_root_password
+
+depends build_busybox
+
+build_needs sed head
+libertine_compile_libertine_filesystem()
+{
+	local sourcePath="$(libertine_public_sourcePath)"
+	local outputSysrootFolderPath="$(libertine_public_outputInitramfsPath)"
+	
+	libertine_public_copy_filesystem "$sourcePath"/ "$outputSysrootFolderPath"/
+	
+	
+	
+	# Create /etc/resolv.conf
+	
+	{
+		if core_variable_isUnset libertine_filesystem_resolvConf_search; then
+			libertine_filesystem_resolvConf_search='localdomain'
+		fi
+		printf 'domain %s\n' "$libertine_filesystem_domain"
+
+		if core_variable_isUnset libertine_filesystem_resolvConf_nameservers; then
+			libertine_filesystem_resolvConf_nameservers='8.8.4.4 8.8.8.8 2001:4860:4860::8844 2001:4860:4860::8888'
+		fi
+		
+		IFS=' ' set -- $libertine_filesystem_resolvConf_nameservers
+		local nameserver
+		for nameserver in "$@"
+		do
+			printf 'nameserver %s\n' "$nameserver"
+		done
+		
+		printf 'options rotate\n'
+		printf 'options attempt:5\n'
+		printf 'options timeout:2\n'
+		
+		# Prefer IPv6 AAAA queries, and wrap A query answers as IPv4 in IPv6 addresses
+		#printf 'options inet6\n'
+		
+		#printf 'options edns0\n'
+		
+	} >"$outputSysrootFolderPath"/etc/resolv.conf
+	
+	
+	
+	# Create /etc/hostname and /etc/dnsdomainname
+	
+	printf '%s\n' "$libertine_machine" >"$outputSysrootFolderPath"/etc/hostname
+	printf '%s\n' "$libertine_filesystem_domain" >"$outputSysrootFolderPath"/etc/dnsdomainname
+	
+	
+	
+	
+	# Adjust version in /etc/os-release
+	
+	if core_variable_isUnset libertine_filesystem_osRelease_versionId; then
+		libertine_filesystem_osRelease_versionId='0.0.0'
+	fi
+	
+	sed -i -e 's/0.0.0/'"$libertine_filesystem_osRelease_versionId"'/g' "$outputSysrootFolderPath"/etc/os-release
+	
+	local ttyGid="$(head -n 1  "$sourcePath"/etc/group.d/tty/id)"
+	if [ -z "$ttyGid" ]; then
+		core_exitError $core_commandLine_exitCode_CONFIG "Could not determine tty GID"
+	fi
+	
+	
+	
+	# Replace group numbers
+
+	set --
+	local groupName
+	pushd "$(libertine_public_outputInitramfsPath)"/etc/group.d
+		
+		set +f
+		for groupName in *
+		do
+			set -f
+			if [ ! -d "$groupName" ]; then
+				continue
+			fi
+			
+			local gid
+			_libertine_compile_libertine_filesystem_groupId "$groupName"
+			set -- "$@" -e 's/@'"$groupName"'_gid@/'"$gid"'/g'
+		done
+		set -f
+		
+	popd
+	sed "$@" "$sourcePath"/../initramfs.contents.template >"$(libertine_public_outputInitramfsContentsFilePath)"
+}
+
+_libertine_compile_libertine_filesystem_groupId()
+{
+	local groupName="$1"
+	
+	gid="$(head -n 1  "$sourcePath"/etc/group.d/"$groupName"/id)"
+	if [ -z "$gid" ]; then
+		core_exitError $core_commandLine_exitCode_CONFIG "Could not determine group id (GID) for group '$groupName'"
+	fi
+}

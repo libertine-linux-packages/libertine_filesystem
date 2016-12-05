@@ -1,0 +1,6 @@
+cciss!(.*)	root:disk 0660 =cciss/%1
+cciss/(.*)	root:disk 0660 =cciss/%1
+ida!(.*)	root:disk 0660 =ida/%1
+ida/(.*)	root:disk 0660 =ida/%1
+rd!(.*)		root:disk 0660 =rd/%1
+rd/(.*)		root:disk 0660 =rd/%1

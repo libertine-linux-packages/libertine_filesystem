@@ -1,0 +1,1 @@
+usb[0-9]+	root:root 0660 */lib/mdev/usbdev

@@ -1,0 +1,148 @@
+#!/usr/bin/env sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+
+#//usage:     "\n	-r PROG		Script to run"
+#//usage:     "\n	-x ARG		Extra argument for script"
+#//usage:     "\n	-I		Don't exit on nonzero exit code from script"
+# default script name is /etc/ifplugd/ifplugd.action
+# we should change this to a run-parts setup
+
+# script receives an arg1 of IFACE
+# script receives an arg2 of 'error' 'down' 'up'
+
+# Uses options:-
+#   ifplugd-link-detection-failure        exit/up/down  Essential option to recognise ifplugd on interface ((nothing), -f, -F)
+#   ifplugd-up-on-probe                   true/false    Defaults to false
+#   ifplugd-must-exist                    true/false    Defaults to false
+#   ifplugd-poll-seconds                  1             Defaults to 1
+#   ifplugd-up-delay-seconds              0             Defaults to 0
+#   ifplugd-down-delay-seconds            5             Defaults to 5
+#   ifplugd-api-mode                      mii/priv/ethtool/wlan/iff/auto  Defaults to auto
+#   ifplugd-run-script-up-on-startup      true/false    Defaults to false
+#   ifplugd-run-script-down-on-exit       true/false    Defaults to false
+#   ifplugd-always-run-script-on-startup  true/false    Defaults to false
+libertine_network_if_post_up_plugd_main()
+{
+	. /usr/lib/network.functions
+	
+	if core_variable_isUnsetOrEmpty IFACE; then
+		return 0
+	fi
+	local weAreConfiguringInterface="$IFACE"
+	
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_LINK_DETECTION_FAILURE; then
+		return 0
+	fi
+
+	if ! command -v ifplugd 1>/dev/null 2>/dev/null; then
+		libertine_network_message "ifplugd is missing from PATH, can not enable link monitoring"
+		return 0
+	fi
+	
+	set -- -i "$weAreConfiguringInterface" -I -r /usr/sbin/ifplugd.action
+	
+	case "$IF_IFPLUGD_LINK_DETECTION_FAILURE" in
+		
+		none)
+		
+		;;
+		
+		up)
+			set -- "$@" -f
+		;;
+		
+		down)
+			set -- "$@" -F
+		;;
+		
+		*)
+			libertine_network_message "Unrecognised ifplugd-link-detection setting '$IF_IFPLUGD_LINK_DETECTION_FAILURE'"
+			return 1
+		;;
+		
+	esac
+	
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_UP_ON_PROBE; then
+		set -- "$@" -a
+	elif "$IF_IFPLUGD_UP_ON_PROBE"; then
+		:
+	else
+		set -- "$@" -a
+	fi
+	
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_MUST_EXIST; then
+		set -- "$@" -M
+	elif "$IF_IFPLUGD_MUST_EXIST"; then
+		:
+	else
+		set -- "$@" -M
+	fi
+	
+	local defaultPollSeconds=1
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_POLL_SECONDS; then
+		set -- "$@" -t "$defaultPollSeconds"
+	else
+		set -- "$@" -t "$IF_IFPLUGD_POLL_SECONDS"
+	fi
+	
+	local defaultUpDelaySeconds=0
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_UP_DELAY_SECONDS; then
+		set -- "$@" -t "$defaultUpDelaySeconds"
+	else
+		set -- "$@" -u "$IF_IFPLUGD_UP_DELAY_SECONDS"
+	fi
+	
+	local defaultDownDelaySeconds=5
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_DOWN_DELAY_SECONDS; then
+		set -- "$@" -t "$defaultDownDelaySeconds"
+	else
+		set -- "$@" -d "$IF_IFPLUGD_DOWN_DELAY_SECONDS"
+	fi
+	
+	local defaultApiMode=auto
+	local apiMode
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_API_MODE; then
+		apiMode='auto'
+	else
+		case "$IF_IFPLUGD_API_MODE" in
+			
+			mii|priv|ethtool|wlan|iff|auto)
+				apiMode="$IF_IFPLUGD_API_MODE"
+			;;
+			
+			*)
+				libertine_network_message "Unrecognised ifplugd-api-mode setting '$IF_IFPLUGD_API_MODE'"
+				return 1
+			;;
+			
+		esac
+	fi
+	set -- "$@" -m "$apiMode"
+	
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_RUN_SCRIPT_UP_ON_STARTUP; then
+		:
+	elif "$IF_IFPLUGD_RUN_SCRIPT_UP_ON_STARTUP"
+		set -- "$@" -p
+	fi
+	
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_RUN_SCRIPT_DOWN_ON_EXIT; then
+		:
+	elif "$IF_IFPLUGD_RUN_SCRIPT_DOWN_ON_EXIT"
+		set -- "$@" -q
+	fi
+	
+	if core_variable_isEmptyOrUnset IF_IFPLUGD_ALWAYS_RUN_SCRIPT_ON_STARTUP; then
+		:
+	elif "$IF_IFPLUGD_ALWAYS_RUN_SCRIPT_ON_STARTUP"
+		set -- "$@" -l
+	fi
+}
+
+libertine_network_if_post_up_plugd_main "$@"

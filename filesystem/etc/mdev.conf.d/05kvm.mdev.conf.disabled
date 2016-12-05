@@ -1,0 +1,2 @@
+# Kernel-based Virtual Machine.
+kvm		root:kvm 660

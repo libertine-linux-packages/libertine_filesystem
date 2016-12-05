@@ -1,0 +1,4 @@
+loopback 127 loopback-net your-net
+your-mask 255.255.255
+subnet1 127.0.1 alias1
+subnet2 127.0.2 alias2

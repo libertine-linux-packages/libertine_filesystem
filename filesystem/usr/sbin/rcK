@@ -1,0 +1,137 @@
+#!/bin/sh
+# This file is part of libertine linux's package libertine_filesystem. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT. No part of libertine linux's package libertine_filesystem, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+_libertine_rcS_hasBinaryInPath()
+{
+	local binary
+	command -v "$binary" 1>/dev/null 2>/dev/null
+}
+
+_libertine_rcS_errorMessage()
+{
+	local message="$1"
+
+	printf "ERROR: %s\n" "$message" 1>&2
+}
+
+_libertine_rcS_executeIfExistsAndIgnoreFailure()
+{
+	local commandToExecute="$1"
+	
+	if _libertine_rcS_hasBinaryInPath "$commandToExecute"; then
+		set +e
+		"$@"
+		local exitCode=$?
+		set -e
+		if [ $exitCode -ne 0 ]; then
+			_libertine_rcS_errorMessage "The command '$commandToExecute' $@ failed to execute (exit code was $exitCode)"
+		fi
+	else
+		_libertine_rcS_errorMessage "The command '$commandToExecute' does not exist"
+	fi
+}
+
+libertine_rcK_executeAllStopScripts()
+{
+	local scriptFilePath
+	set +f
+	for scriptFilePath in /etc/init.d/K??*.init
+	do
+		set -f
+		
+		if [ ! -f "$scriptFilePath" ]; then
+			continue
+		fi
+		
+		if [ ! -s "$scriptFilePath" ]; then
+			continue
+		fi
+
+		(
+			trap - INT QUIT TSTP
+			set -- stop
+			. "$scriptFilePath" stop || _libertine_rcS_errorMessage "Could not stop '$scriptFilePath'"
+		)
+		
+	done
+	set -f
+}
+
+libertine_rcK_killAllRemainingProcesses()
+{
+	if ! _libertine_rcS_hasBinaryInPath killall5; then
+		return 0
+	fi
+	
+	# SIGTERM
+	killall5 -15 ${killall5_opts}
+	
+	_libertine_rcS_executeIfExistsAndIgnoreFailure sleep 5
+	
+	# SIGKILL
+	killall5 -9 ${killall5_opts}
+}
+
+libertine_rcK_disableNetworking()
+{
+	if [ -f /etc/network/interfaces ]; then
+		_libertine_rcS_executeIfExistsAndIgnoreFailure ifdown -f -a -i /etc/network/interfaces -v 1>&2
+	fi
+}
+
+libertine_rcK_sync()
+{
+	_libertine_rcS_executeIfExistsAndIgnoreFailure sync
+}
+
+libertine_rcK_swapOff()
+{
+	# Relies on /etc/fstab existing
+	if [ ! -f /etc/fstab ]; then
+		_libertine_rcS_executeIfExistsAndIgnoreFailure rm -rf /etc/fstab
+		printf '' >/etc/fstab
+	fi
+	_libertine_rcS_executeIfExistsAndIgnoreFailure swapoff -a -e >/dev/null
+}
+
+libertine_rcK_unmountAllFilesystems()
+{
+	# Relies on rootfs not appearing in /etc/mtab (this is a busybox configure option)
+	_libertine_rcS_executeIfExistsAndIgnoreFailure umount -a -r
+}
+
+libertine_rcK_main()
+{
+	libertine_rcK_executeAllStopScripts
+	libertine_rcK_killAllRemainingProcesses
+	libertine_rcK_disableNetworking
+	libertine_rcK_sync
+	libertine_rcK_swapOff
+	libertine_rcK_unmountAllFilesystems
+}
+
+export PATH='/usr/sbin:/sbin:/usr/bin:/bin'
+export LOGNAME='root'
+export USER='root'
+export HOME='/home/root'
+export SHELL='/bin/sh'
+export LANG='en_US.UTF-8'
+export LANGUAGE=en_US
+export LC_COLLATE="$LANG"
+export LC_CTYPE="$LANG"
+export LC_MESSAGES="$LANG"
+export LC_MONETARY="$LANG"
+export LC_NUMERIC="$LANG"
+export LC_TIME="$LANG"
+export LC_ALL=""
+export PAGER=less
+export PS1='\h:\w\$ '
+umask 022
+
+libertine_rcK_main "$@"
