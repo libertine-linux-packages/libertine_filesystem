@@ -63,6 +63,13 @@ libertine_rcK_executeAllStopScripts()
 	set -f
 }
 
+libertine_rcK_stopMdevHotplug()
+{
+	if [ -e /proc/sys/kernel/hotplug ]; then
+		printf '' >/proc/sys/kernel/hotplug || _libertine_rcS_errorMessage "Could not disable mdev hotplug"
+	fi
+}
+
 libertine_rcK_killAllRemainingProcesses()
 {
 	if ! _libertine_rcS_hasBinaryInPath killall5; then
@@ -109,6 +116,7 @@ libertine_rcK_unmountAllFilesystems()
 libertine_rcK_main()
 {
 	libertine_rcK_executeAllStopScripts
+	libertine_rcK_stopMdevHotplug
 	libertine_rcK_killAllRemainingProcesses
 	libertine_rcK_disableNetworking
 	libertine_rcK_sync

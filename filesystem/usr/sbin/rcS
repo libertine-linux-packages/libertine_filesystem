@@ -121,6 +121,37 @@ libertine_rcS_mdev()
 	fi
 }
 
+libertine_rcS_pokeAfterMdev()
+{
+	# Also afer mdev -s
+	# mdev -s does not poke network interfaces or usb devices so we need to do it here.
+	set +f
+	local deviceFilePath
+	for deviceFilePath in /sys/class/net/*/uevent
+	do
+		set -f
+		if [ -e "$deviceFilePath" ]; then
+			printf 'add' >"$deviceFilePath" || _libertine_rcS_errorMessage "Could not 'add' to device '$deviceFilePath'"
+		fi
+	done
+	set -f
+	
+	set +f
+	local deviceFolderPath
+	for deviceFolderPath in /sys/bus/usb/devices/*
+	do
+		set -f
+		case "${deviceFolderPath##*/}" in
+			
+			[0-9]*-[0-9]*)
+				printf 'add'  >"$deviceFolderPath"/uevent || _libertine_rcS_errorMessage "Could not 'add' to device '$deviceFolderPath/uevent'"
+			;;
+			
+		esac		
+	done
+	set -f
+}
+
 libertine_rcS_logKernelToTty2()
 {
 	_libertine_rcS_executeIfExistsAndIgnoreFailure setlogcons 2
@@ -761,6 +792,7 @@ libertine_rcS()
 	libertine_rcS_enableAllSwapDevices
 	
 	libertine_rcS_mdev
+	libertine_rcS_pokeAfterMdev
 	libertine_rcS_logKernelToTty2
 	
 	libertine_rcS_installKeymap
