@@ -105,6 +105,21 @@ libertine_rcS_mountVirtualFilesystems()
 	_libertine_rcS_mount pstore pstore /sys/fs/pstore rw,nosuid,nodev,noexec,relatime
 }
 
+libertine_rcS_hwclock()
+{
+	set +f
+	local rtcDeviceFilePath
+	for rtcDeviceFilePath in /dev/rtc /dev/rtc[0-9]* /dev/misc/rtc
+	do
+		set -f
+		if [ -e "$rtcDeviceFilePath" ]; then
+			_libertine_rcS_executeIfExistsAndIgnoreFailure hwclock -s -t -u -f "$rtcDeviceFilePath"
+			return 0
+		fi
+	done
+	set -f
+}
+
 libertine_rcS_enableAllSwapDevices()
 {
 	if [ -s /etc/fstab ]; then
@@ -791,6 +806,9 @@ libertine_rcS()
 	libertine_rcS_redirectStandardOutAndStandardError
 		
 	libertine_rcS_mountVirtualFilesystems
+	
+	libertine_rcS_hwclock
+	
 	libertine_rcS_enableAllSwapDevices
 	
 	libertine_rcS_mdev
