@@ -6,7 +6,6 @@
 set -e
 set -u
 set -f
-set -x
 
 _libertine_rcS_hasBinaryInPath()
 {
@@ -24,14 +23,15 @@ _libertine_rcS_errorMessage()
 _libertine_rcS_executeIfExistsAndIgnoreFailure()
 {
 	local commandToExecute="$1"
+	shift 1
 	
 	if _libertine_rcS_hasBinaryInPath "$commandToExecute"; then
 		set +e
-		"$@"
+		$commandToExecute "$@"
 		local exitCode=$?
 		set -e
 		if [ $exitCode -ne 0 ]; then
-			_libertine_rcS_errorMessage "The command '$commandToExecute' $@ failed to execute (exit code was $exitCode)"
+			_libertine_rcS_errorMessage "The command '$commandToExecute' $* failed to execute (exit code was $exitCode)"
 		fi
 	else
 		_libertine_rcS_errorMessage "The command '$commandToExecute' does not exist"
@@ -64,9 +64,9 @@ libertine_rcS_redirectStandardOutAndStandardError()
 	_libertine_rcS_executeIfExistsAndIgnoreFailure chmod 0600 "$logFolderPath"/rcS.out.log
 	exec 1>>"$logFolderPath"/rcS.out.log || _libertine_rcS_errorMessage "Could not start logging stdout to '$logFolderPath/rcS.out.log'"
 	
-	# printf '' >"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not write to '$logFolderPath/rcS.err.log'"
-	# _libertine_rcS_executeIfExistsAndIgnoreFailure chmod 0600 "$logFolderPath"/rcS.err.log
-	# exec 2>>"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not start logging stderr to '$logFolderPath/rcS.out.log'"
+	printf '' >"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not write to '$logFolderPath/rcS.err.log'"
+	_libertine_rcS_executeIfExistsAndIgnoreFailure chmod 0600 "$logFolderPath"/rcS.err.log
+	exec 2>>"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not start logging stderr to '$logFolderPath/rcS.out.log'"
 }
 
 libertine_rcS_mountVirtualFilesystems()
@@ -129,7 +129,7 @@ libertine_rcS_enableAllSwapDevices()
 
 libertine_rcS_mdev()
 {
-	if [ -d /proc/sys/kernel ]; then
+	if [ -f /proc/sys/kernel/hotplug ]; then
 		if _libertine_rcS_hasBinaryInPath mdev; then
 			local pathToMdev="$(command -v mdev)"
 			printf '%s\n' "$pathToMdev" >/proc/sys/kernel/hotplug || _libertine_rcS_errorMessage "Could not write '$pathToMdev' to /proc/sys/kernel/hotplug"
@@ -744,8 +744,13 @@ libertine_rcS_trafficControl()
 
 libertine_rcS_loadRandomSeed()
 {
+	printf '%s\n' "NOT LOADING RANDOM SEED WITH WGET - BUG when calling ip?" 1>&2
+	return 0
+	
+	local wgetTimeoutInSeconds=5
+	
 	# This will currently be lost, but we could look at storing it in BIOS or EFI nvram
-	_libertine_rcS_executeIfExistsAndIgnoreFailure wget -q -O - 'https://www.random.org/strings/?num=1&len=256&digits=on&upperalpha=on&loweralpha=on&unique=on&format=plain&rnd=new' >/dev/random || _libertine_rcS_errorMessage "Could not seed random number generator"
+	# _libertine_rcS_executeIfExistsAndIgnoreFailure wget -T "$wgetTimeoutInSeconds" -q -O - 'https://www.random.org/strings/?num=1&len=256&digits=on&upperalpha=on&loweralpha=on&unique=on&format=plain&rnd=new' >/dev/random || _libertine_rcS_errorMessage "Could not seed random number generator"
 }
 
 libertine_rcS_lockDownAllHomeFoldersAndSrvFolders()
@@ -791,11 +796,6 @@ libertine_rcS_executeAllStartScripts()
 	set -f
 }
 
-libertine_rcS_finished()
-{
-	printf 'FINISHED\n' 1>&2
-}
-
 libertine_rcS()
 {
 	local libertine_rcS_hostName='machine'
@@ -804,44 +804,40 @@ libertine_rcS()
 	local libertine_rcS_resolvConfOptions=''
 	
 	libertine_rcS_redirectStandardOutAndStandardError
-		
-	libertine_rcS_mountVirtualFilesystems
 	
-	libertine_rcS_hwclock
-	
-	libertine_rcS_enableAllSwapDevices
-	
-	libertine_rcS_mdev
-	libertine_rcS_pokeAfterMdev
-	libertine_rcS_logKernelToTty2
-	
-	libertine_rcS_installKeymap
-	libertine_rcS_installConsoleFontAndTrans
-	libertine_rcS_setTerminalEncodingToUtf8
-	
-	libertine_rcS_loadBinFmtDefinitions
-	
-	libertine_rcS_readDefaults
-	
-	libertine_rcS_kernelCommandLine
-	
+	local functionToExecute
+	for functionToExecute in \
+		mountVirtualFilesystems \
+		hwclock \
+		enableAllSwapDevices
+		mdev \
+		pokeAfterMdev \
+		logKernelToTty2 \
+		installKeymap \
+		installConsoleFontAndTrans \
+		setTerminalEncodingToUtf8 \
+		loadBinFmtDefinitions \
+		readDefaults \
+		kernelCommandLine \
+		setSysctlParameters \
+		enableNetworking \
+		staticRoutes \
+		trafficControl \
+		loadRandomSeed \
+		lockDownAllHomeFoldersAndSrvFolders \
+		executeAllStartScripts \
+	do
+		{
+			printf 'Executing: %s\n' "$functionToExecute"
+			libertine_rcS_${functionToExecute}
+			printf 'Finished: %s\n\n' "$functionToExecute"
+		} 1>&2
+	done
 
-	libertine_rcS_setSysctlParameters
-	libertine_rcS_enableNetworking
-	
-	libertine_rcS_staticRoutes
-	libertine_rcS_trafficControl
-
-	# needs networking
-	libertine_rcS_loadRandomSeed
-	
-	libertine_rcS_lockDownAllHomeFoldersAndSrvFolders
-	
-	libertine_rcS_executeAllStartScripts
-	libertine_rcS_finished
+	printf 'FINISHED\n' 1>&2
 }
 
-export PATH='/usr/sbin:/sbin:/usr/bin:/bin'
+export PATH='/usr/sbin:/usr/bin'
 export LOGNAME='root'
 export USER='root'
 export HOME='/home/root'
