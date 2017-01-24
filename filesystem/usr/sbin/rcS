@@ -31,7 +31,7 @@ _libertine_rcS_executeIfExistsAndIgnoreFailure()
 		local exitCode=$?
 		set -e
 		if [ $exitCode -ne 0 ]; then
-			_libertine_rcS_errorMessage "The command '$commandToExecute' $* failed to execute (exit code was $exitCode)"
+			_libertine_rcS_errorMessage "The command '$commandToExecute $*' failed to execute (exit code was $exitCode)"
 		fi
 	else
 		_libertine_rcS_errorMessage "The command '$commandToExecute' does not exist"
@@ -113,7 +113,7 @@ libertine_rcS_hwclock()
 	do
 		set -f
 		if [ -e "$rtcDeviceFilePath" ]; then
-			_libertine_rcS_executeIfExistsAndIgnoreFailure hwclock -s -t -u -f "$rtcDeviceFilePath"
+			_libertine_rcS_executeIfExistsAndIgnoreFailure hwclock -s -u -f "$rtcDeviceFilePath"
 			return 0
 		fi
 	done
@@ -753,6 +753,17 @@ libertine_rcS_loadRandomSeed()
 	# _libertine_rcS_executeIfExistsAndIgnoreFailure wget -T "$wgetTimeoutInSeconds" -q -O - 'https://www.random.org/strings/?num=1&len=256&digits=on&upperalpha=on&loweralpha=on&unique=on&format=plain&rnd=new' >/dev/random || _libertine_rcS_errorMessage "Could not seed random number generator"
 }
 
+libertine_rcS_lockDownGrSecurityHideSymFolders()
+{
+	local folderPath
+	for folderPath in /boot /lib/modules /lib64/modules /lib32/modules
+	do
+		if [ -d "$folderPath" ]; then
+			_libertine_rcS_executeIfExistsAndIgnoreFailure chmod -f 0500 "$folderPath"
+		fi
+	done
+}
+
 libertine_rcS_lockDownAllHomeFoldersAndSrvFolders()
 {
 	set +f
@@ -785,19 +796,41 @@ libertine_rcS_executeAllStartScripts()
 		if [ ! -s "$scriptFilePath" ]; then
 			continue
 		fi
-
+		
+		printf '\n\tStarting: %s\n' "$scriptFilePath"
 		(
 			trap - INT QUIT TSTP
 			set -- start
 			. "$scriptFilePath" start || _libertine_rcS_errorMessage "Could not source start script '$scriptFilePath'"
 		)
+		printf '\tStarted:  %s\n' "$scriptFilePath"
 		
 	done
 	set -f
+	
+	printf '\n'
 }
 
 libertine_rcS()
 {
+	export PATH='/usr/sbin:/usr/bin'
+	export LOGNAME='root'
+	export USER='root'
+	export HOME='/home/root'
+	export SHELL='/bin/sh'
+	export LANG='en_US.UTF-8'
+	export LANGUAGE=en_US
+	export LC_COLLATE="$LANG"
+	export LC_CTYPE="$LANG"
+	export LC_MESSAGES="$LANG"
+	export LC_MONETARY="$LANG"
+	export LC_NUMERIC="$LANG"
+	export LC_TIME="$LANG"
+	export LC_ALL=""
+	export PAGER=less
+	export PS1='\h:\w\$ '
+	umask 022
+	
 	local libertine_rcS_hostName='machine'
 	local libertine_rcS_dnsDomainName='localdomain'
 	local libertine_rcS_nameServers=''
@@ -809,7 +842,7 @@ libertine_rcS()
 	for functionToExecute in \
 		mountVirtualFilesystems \
 		hwclock \
-		enableAllSwapDevices
+		enableAllSwapDevices \
 		mdev \
 		pokeAfterMdev \
 		logKernelToTty2 \
@@ -824,35 +857,16 @@ libertine_rcS()
 		staticRoutes \
 		trafficControl \
 		loadRandomSeed \
+		lockDownGrSecurityHideSymFolders \
 		lockDownAllHomeFoldersAndSrvFolders \
-		executeAllStartScripts \
+		executeAllStartScripts
 	do
 		{
 			printf 'Executing: %s\n' "$functionToExecute"
 			libertine_rcS_${functionToExecute}
-			printf 'Finished: %s\n\n' "$functionToExecute"
+			printf 'Finished:  %s\n\n' "$functionToExecute"
 		} 1>&2
 	done
-
-	printf 'FINISHED\n' 1>&2
 }
-
-export PATH='/usr/sbin:/usr/bin'
-export LOGNAME='root'
-export USER='root'
-export HOME='/home/root'
-export SHELL='/bin/sh'
-export LANG='en_US.UTF-8'
-export LANGUAGE=en_US
-export LC_COLLATE="$LANG"
-export LC_CTYPE="$LANG"
-export LC_MESSAGES="$LANG"
-export LC_MONETARY="$LANG"
-export LC_NUMERIC="$LANG"
-export LC_TIME="$LANG"
-export LC_ALL=""
-export PAGER=less
-export PS1='\h:\w\$ '
-umask 022
 
 libertine_rcS "$@"

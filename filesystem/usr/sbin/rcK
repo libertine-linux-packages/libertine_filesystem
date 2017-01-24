@@ -9,7 +9,7 @@ set -f
 
 _libertine_rcS_hasBinaryInPath()
 {
-	local binary
+	local binary="$1"
 	command -v "$binary" 1>/dev/null 2>/dev/null
 }
 
@@ -23,14 +23,15 @@ _libertine_rcS_errorMessage()
 _libertine_rcS_executeIfExistsAndIgnoreFailure()
 {
 	local commandToExecute="$1"
+	shift 1
 	
 	if _libertine_rcS_hasBinaryInPath "$commandToExecute"; then
 		set +e
-		"$@"
+		$commandToExecute "$@"
 		local exitCode=$?
 		set -e
 		if [ $exitCode -ne 0 ]; then
-			_libertine_rcS_errorMessage "The command '$commandToExecute' $@ failed to execute (exit code was $exitCode)"
+			_libertine_rcS_errorMessage "The command '$commandToExecute $*' failed to execute (exit code was $exitCode)"
 		fi
 	else
 		_libertine_rcS_errorMessage "The command '$commandToExecute' does not exist"
@@ -52,12 +53,15 @@ libertine_rcK_executeAllStopScripts()
 		if [ ! -s "$scriptFilePath" ]; then
 			continue
 		fi
-
+		
+		printf '\n\tStopping: %s\n' "$scriptFilePath"
 		(
 			trap - INT QUIT TSTP
 			set -- stop
-			. "$scriptFilePath" stop || _libertine_rcS_errorMessage "Could not stop '$scriptFilePath'"
+			. "$scriptFilePath" stop || _libertine_rcS_errorMessage "Could not source stop script '$scriptFilePath'"
 		)
+		printf '\tStopped:  %s\n' "$scriptFilePath"
+		sleep 15
 		
 	done
 	set -f
@@ -70,26 +74,22 @@ libertine_rcK_stopMdevHotplug()
 	fi
 }
 
-libertine_rcK_killAllRemainingProcesses()
-{
-	if ! _libertine_rcS_hasBinaryInPath killall5; then
-		return 0
-	fi
-	
-	# SIGTERM
-	killall5 -15 ${killall5_opts}
-	
-	_libertine_rcS_executeIfExistsAndIgnoreFailure sleep 5
-	
-	# SIGKILL
-	killall5 -9 ${killall5_opts}
-}
-
 libertine_rcK_disableNetworking()
 {
 	if [ -f /etc/network/interfaces ]; then
 		_libertine_rcS_executeIfExistsAndIgnoreFailure ifdown -f -a -i /etc/network/interfaces -v 1>&2
 	fi
+}
+
+libertine_rcK_killAllRemainingProcesses()
+{
+	# SIGTERM
+	_libertine_rcS_executeIfExistsAndIgnoreFailure killall5 -15
+	
+	_libertine_rcS_executeIfExistsAndIgnoreFailure sleep 5
+	
+	# SIGKILL
+	_libertine_rcS_executeIfExistsAndIgnoreFailure killall5 -9
 }
 
 libertine_rcK_sync()
@@ -109,37 +109,52 @@ libertine_rcK_swapOff()
 
 libertine_rcK_unmountAllFilesystems()
 {
-	# Relies on rootfs not appearing in /etc/mtab (this is a busybox configure option)
-	_libertine_rcS_executeIfExistsAndIgnoreFailure umount -a -r
+	if _libertine_rcS_hasBinaryInPath umount; then
+		# Relies on rootfs not appearing in /etc/mtab (this is a busybox configure option)
+		# Can't unmount '/'
+		umount -a -r 1>/dev/null 2>/dev/null || true
+	fi
 }
 
 libertine_rcK_main()
 {
-	libertine_rcK_executeAllStopScripts
-	libertine_rcK_stopMdevHotplug
-	libertine_rcK_killAllRemainingProcesses
-	libertine_rcK_disableNetworking
-	libertine_rcK_sync
-	libertine_rcK_swapOff
-	libertine_rcK_unmountAllFilesystems
+	export PATH='/usr/sbin:/usr/bin'
+	export LOGNAME='root'
+	export USER='root'
+	export HOME='/home/root'
+	export SHELL='/bin/sh'
+	export LANG='en_US.UTF-8'
+	export LANGUAGE='en_US'
+	export LC_COLLATE="$LANG"
+	export LC_CTYPE="$LANG"
+	export LC_MESSAGES="$LANG"
+	export LC_MONETARY="$LANG"
+	export LC_NUMERIC="$LANG"
+	export LC_TIME="$LANG"
+	export LC_ALL=""
+	export PAGER=less
+	export PS1='\h:\w\$ '
+	umask 022
+
+	local functionToExecute
+	for functionToExecute in \
+		executeAllStopScripts \
+		stopMdevHotplug \
+		disableNetworking \
+		killAllRemainingProcesses \
+		sync \
+		swapOff \
+		unmountAllFilesystems
+	do
+		{
+			printf 'Executing: %s\n' "$functionToExecute"
+			libertine_rcK_${functionToExecute}
+			printf 'Finished:  %s\n\n' "$functionToExecute"
+		} 1>&2
+	done
+
+	printf 'Sleeping 15 seconds\n'
+	sleep 15
+	
 }
-
-export PATH='/usr/sbin:/sbin:/usr/bin:/bin'
-export LOGNAME='root'
-export USER='root'
-export HOME='/home/root'
-export SHELL='/bin/sh'
-export LANG='en_US.UTF-8'
-export LANGUAGE=en_US
-export LC_COLLATE="$LANG"
-export LC_CTYPE="$LANG"
-export LC_MESSAGES="$LANG"
-export LC_MONETARY="$LANG"
-export LC_NUMERIC="$LANG"
-export LC_TIME="$LANG"
-export LC_ALL=""
-export PAGER=less
-export PS1='\h:\w\$ '
-umask 022
-
 libertine_rcK_main "$@"

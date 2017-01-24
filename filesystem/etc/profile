@@ -2,9 +2,9 @@
 # Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
 
 
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH='/usr/sbin:/usr/bin'
 export LANG='en_US.UTF-8'
-export LANGUAGE=en_US
+export LANGUAGE='en_US'
 export LC_COLLATE="$LANG"
 export LC_CTYPE="$LANG"
 export LC_MESSAGES="$LANG"
@@ -14,8 +14,8 @@ export LC_TIME="$LANG"
 export LC_ALL=""
 export PAGER=less
 export PS1='\h:\w\$ '
-export MANPATH=/usr/share/man
-export INFOPATH=/usr/share/info
+export MANPATH='/usr/share/man'
+export INFOPATH='/usr/share/info'
 umask 022
 
 for __script in /etc/profile.d/*.profile

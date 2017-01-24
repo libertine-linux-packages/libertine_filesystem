@@ -1,1 +1,1 @@
-nobody:x:65534:65534:nobody:/var/empty:/usr/bin/false
+nobody:x:65534:65534:GECOS:/var/empty:/usr/bin/false

@@ -17,61 +17,10 @@ libertine_compile_libertine_filesystem()
 	libertine_public_copy_filesystem "$sourcePath"/ "$outputSysrootFolderPath"/
 	
 	
-	
-	# Create /etc/resolv.conf
-	
-	{
-		if core_variable_isUnset libertine_filesystem_resolvConf_search; then
-			libertine_filesystem_resolvConf_search='localdomain'
-		fi
-		printf 'domain %s\n' "$libertine_filesystem_domain"
-
-		if core_variable_isUnset libertine_filesystem_resolvConf_nameservers; then
-			libertine_filesystem_resolvConf_nameservers='8.8.4.4 8.8.8.8 2001:4860:4860::8844 2001:4860:4860::8888'
-		fi
-		
-		IFS=' ' set -- $libertine_filesystem_resolvConf_nameservers
-		local nameserver
-		for nameserver in "$@"
-		do
-			printf 'nameserver %s\n' "$nameserver"
-		done
-		
-		printf 'options rotate\n'
-		printf 'options attempt:5\n'
-		printf 'options timeout:2\n'
-		
-		# Prefer IPv6 AAAA queries, and wrap A query answers as IPv4 in IPv6 addresses
-		#printf 'options inet6\n'
-		
-		#printf 'options edns0\n'
-		
-	} >"$outputSysrootFolderPath"/etc/resolv.conf
-	
-	
-	
-	# Create /etc/hostname and /etc/dnsdomainname
-	
-	printf '%s\n' "$libertine_machine" >"$outputSysrootFolderPath"/etc/hostname
-	printf '%s\n' "$libertine_filesystem_domain" >"$outputSysrootFolderPath"/etc/dnsdomainname
-	
-	
-	
-	
-	# Adjust version in /etc/os-release
-	
-	if core_variable_isUnset libertine_filesystem_osRelease_versionId; then
-		libertine_filesystem_osRelease_versionId='0.0.0'
-	fi
-	
-	sed -i -e 's/0.0.0/'"$libertine_filesystem_osRelease_versionId"'/g' "$outputSysrootFolderPath"/etc/os-release
-	
 	local ttyGid="$(head -n 1  "$sourcePath"/etc/group.d/tty/id)"
 	if [ -z "$ttyGid" ]; then
 		core_exitError $core_commandLine_exitCode_CONFIG "Could not determine tty GID"
 	fi
-	
-	
 	
 	# Replace group numbers
 

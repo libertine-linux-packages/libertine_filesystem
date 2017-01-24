@@ -2,6 +2,37 @@
 # Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
 
 
+_libertine_rcS_hasBinaryInPath()
+{
+	local binary="$1"
+	command -v "$binary" 1>/dev/null 2>/dev/null
+}
+
+_libertine_rcS_errorMessage()
+{
+	local message="$1"
+
+	printf "ERROR: %s\n" "$message" 1>&2
+}
+
+_libertine_rcS_executeIfExistsAndIgnoreFailure()
+{
+	local commandToExecute="$1"
+	shift 1
+	
+	if _libertine_rcS_hasBinaryInPath "$commandToExecute"; then
+		set +e
+		$commandToExecute "$@"
+		local exitCode=$?
+		set -e
+		if [ $exitCode -ne 0 ]; then
+			_libertine_rcS_errorMessage "The command '$commandToExecute $*' failed to execute (exit code was $exitCode)"
+		fi
+	else
+		_libertine_rcS_errorMessage "The command '$commandToExecute' does not exist"
+	fi
+}
+
 core_variable_isSet()
 {
 	# These expressions work in all shells bar pdksh 5.2.14, which treats expanded emptiness as unset...

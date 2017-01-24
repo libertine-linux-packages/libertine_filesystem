@@ -1,1 +1,1 @@
-daemon:x:2:2:daemon:/usr/sbin:/usr/bin/false
+daemon:x:2:2:GECOS:/usr/sbin:/usr/bin/false

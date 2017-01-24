@@ -3,6 +3,10 @@
 # Copyright © 2016 The developers of libertine linux's package libertine_filesystem. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine_filesystem/master/COPYRIGHT.
 
 
+set -e
+set -u
+set -f
+
 # We should be called with some of the following environment variables set, but only for bound / renew and nak
 #  interface
 #  ip
@@ -42,13 +46,13 @@ _udhcpc_default_script_calculateMetric()
 	fi
 	
 	local interfaceIndex
-	if [ -s /sys/class/net/$interface/ifindex ]; then
+	if [ -s /sys/class/net/"$interface"/ifindex ]; then
 		interfaceIndex="$(cat /sys/class/net/$interface/ifindex)"
 	else
 		interfaceIndex="$(ip link show dev "$interface" | head -n 1 | cut -d: -f1)"
 	fi
 	
-	printf '%s' $(( index + baseMetric + $(if_index) ))
+	printf '%s' $(( index + baseMetric + interfaceIndex ))
 }
 
 _udhcpc_default_script_routes()
@@ -77,12 +81,12 @@ _udhcpc_default_script_hostNameAndDnsDomainName()
 {
 	if core_variable_isSet hostname; then
 		printf '%s\n' "$hostname" >/etc/hostname || true
-		hostname "$hostname" || true
+		_libertine_rcS_executeIfExistsAndIgnoreFailure hostname "$hostname" || true
 	fi
 	
 	if core_variable_isSet domain; then
 		printf '%s\n' "$domain" >/etc/dnsdomainname || true
-		dnsdomainname "$domain" || true
+		_libertine_rcS_executeIfExistsAndIgnoreFailure dnsdomainname "$domain" || true
 	fi
 }
 
@@ -105,6 +109,10 @@ _udhcpc_default_script_resolvconf()
 			done
 		fi
 		
+		printf 'options rotate\n'
+		printf 'options attempt:5\n'
+		printf 'options timeout:2\n'
+		
 	} >/etc/resolv.conf
 }
 
@@ -112,7 +120,7 @@ udhcpc_default_script_main()
 {
 	export HOME='/home/root'
 	export PATH='/usr/sbin:/usr/bin'
-		
+			
 	if [ $# -eq 0 ]; then
 		printf '%s\n' "udhcpc-default-script:WARNING:Invalid use of udhcpc-default-script" 1>&2
 		exit 1
@@ -123,14 +131,25 @@ udhcpc_default_script_main()
 	
 	. /usr/lib/core.functions
 	
+	set +f
 	local snippet
 	for snippet in /etc/network/udhcpc/"$cause".d/*."$cause"
 	do
+		set -f
 		if [ -s "$snippet" ]; then
-			. "$snippet" || true
-			udhcpc_default_script_${cause} "$@" || true
+			
+			local snippetName="${snippet##*/}"
+			{
+				printf '%s\n' "Sourcing udhcp-script snippet: '$snippetName'"
+				(
+					. "$snippet" || true
+					udhcpc_default_script_${cause} "$@" || true
+				)
+				printf '%s\n' "Sourced udhcp-script snippet:  '$snippetName'"
+			} 1>&2
 		fi
 	done
+	set -f
 }
 
 udhcpc_default_script_main "$@"
