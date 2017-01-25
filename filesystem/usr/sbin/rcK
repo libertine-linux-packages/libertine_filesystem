@@ -178,9 +178,6 @@ libertine_rcK_main()
 			printf 'Finished:  %s\n\n' "$functionToExecute"
 		} 1>&2
 	done
-
-	printf 'Sleeping 5 seconds to allow review of messages\n'
-	sleep 5
 	
 }
 libertine_rcK_main "$@"
