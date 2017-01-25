@@ -61,7 +61,6 @@ libertine_rcK_executeAllStopScripts()
 			. "$scriptFilePath" stop || _libertine_rcS_errorMessage "Could not source stop script '$scriptFilePath'"
 		)
 		printf '\tStopped:  %s\n' "$scriptFilePath"
-		sleep 15
 		
 	done
 	set -f
@@ -81,15 +80,42 @@ libertine_rcK_disableNetworking()
 	fi
 }
 
+_libertine_rcK_killAll5()
+{
+	local signalNumber="$1"
+	
+	if _libertine_rcS_hasBinaryInPath killall5; then
+				
+		set -- -"$signalNumber"
+		set +e
+			killall5 "$@"
+			local exitCode=$?
+		set -e
+		
+		case "$exitCode" in
+			
+			# exitCode 2 is 'no one signalled'
+			0|2)
+				:
+			;;
+			
+			1)
+				_libertine_rcS_errorMessage "The command 'killall5 $*' failed to execute (exit code was $exitCode)"
+			;;
+			
+		esac
+	fi
+}
+
 libertine_rcK_killAllRemainingProcesses()
 {
-	# SIGTERM
-	_libertine_rcS_executeIfExistsAndIgnoreFailure killall5 -15
+	# SIGTERM: 15
+	_libertine_rcK_killAll5 15
 	
 	_libertine_rcS_executeIfExistsAndIgnoreFailure sleep 5
 	
-	# SIGKILL
-	_libertine_rcS_executeIfExistsAndIgnoreFailure killall5 -9
+	# SIGKILL: 9
+	_libertine_rcK_killAll5 9
 }
 
 libertine_rcK_sync()
@@ -153,8 +179,8 @@ libertine_rcK_main()
 		} 1>&2
 	done
 
-	printf 'Sleeping 15 seconds\n'
-	sleep 15
+	printf 'Sleeping 5 seconds to allow review of messages\n'
+	sleep 5
 	
 }
 libertine_rcK_main "$@"
