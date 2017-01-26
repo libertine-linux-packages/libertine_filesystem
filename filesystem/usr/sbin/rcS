@@ -64,9 +64,9 @@ libertine_rcS_redirectStandardOutAndStandardError()
 	_libertine_rcS_executeIfExistsAndIgnoreFailure chmod 0600 "$logFolderPath"/rcS.out.log
 	exec 1>>"$logFolderPath"/rcS.out.log || _libertine_rcS_errorMessage "Could not start logging stdout to '$logFolderPath/rcS.out.log'"
 	
-	# printf '' >"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not write to '$logFolderPath/rcS.err.log'"
-	# _libertine_rcS_executeIfExistsAndIgnoreFailure chmod 0600 "$logFolderPath"/rcS.err.log
-	# exec 2>>"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not start logging stderr to '$logFolderPath/rcS.out.log'"
+	printf '' >"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not write to '$logFolderPath/rcS.err.log'"
+	_libertine_rcS_executeIfExistsAndIgnoreFailure chmod 0600 "$logFolderPath"/rcS.err.log
+	exec 2>>"$logFolderPath"/rcS.err.log || _libertine_rcS_errorMessage "Could not start logging stderr to '$logFolderPath/rcS.out.log'"
 }
 
 libertine_rcS_mountVirtualFilesystems()
@@ -200,29 +200,6 @@ libertine_rcS_installConsoleFontAndTrans()
 			done
 		fi
 	fi
-}
-
-libertine_rcS_setTerminalEncodingToUtf8()
-{
-	local maximumTtyNumber=5
-	local ttyNumber=1
-	set +f
-	for tty in /dev/tty*
-	do
-		if [ ! -c "$tty" ]; then
-			continue
-		fi
-		
-		case "$tty" in
-			
-			/dev/tty|/dev/tty0)
-				continue
-			;;
-			
-		esac
-		
-		printf "\033%s" 'UTF-8' >"$tty" || _libertine_rcS_errorMessage "Could not set terminal '$tty' encoding to UTF-8"
-	done
 }
 
 libertine_rcS_loadBinFmtDefinitions()
@@ -744,13 +721,10 @@ libertine_rcS_trafficControl()
 
 libertine_rcS_loadRandomSeed()
 {
-	printf '%s\n' "NOT LOADING RANDOM SEED WITH WGET - BUG when calling ip?" 1>&2
-	return 0
-	
-	local wgetTimeoutInSeconds=5
+	local wgetTimeoutInSeconds=15
 	
 	# This will currently be lost, but we could look at storing it in BIOS or EFI nvram
-	_libertine_rcS_executeIfExistsAndIgnoreFailure wget -T "$wgetTimeoutInSeconds" -q -O - 'https://www.random.org/strings/?num=1&len=256&digits=on&upperalpha=on&loweralpha=on&unique=on&format=plain&rnd=new' >/dev/random || _libertine_rcS_errorMessage "Could not seed random number generator"
+	_libertine_rcS_executeIfExistsAndIgnoreFailure wget -T "$wgetTimeoutInSeconds" -q -O - 'https://www.random.org/strings/?num=1&len=20&digits=on&upperalpha=on&loweralpha=on&unique=on&format=plain&rnd=new' >/dev/random || _libertine_rcS_errorMessage "Could not seed random number generator"
 }
 
 libertine_rcS_lockDownGrSecurityHideSymFolders()
@@ -848,7 +822,6 @@ libertine_rcS()
 		logKernelToTty2 \
 		installKeymap \
 		installConsoleFontAndTrans \
-		setTerminalEncodingToUtf8 \
 		loadBinFmtDefinitions \
 		readDefaults \
 		kernelCommandLine \
