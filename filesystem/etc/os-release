@@ -1,6 +1,1 @@
-NAME="Libertine Linux"
-ID=libertine
-VERSION_ID=0.0.0
-PRETTY_NAME="Libertine Linux v0.0.0"
-HOME_URL="https://github.com/libertine-linux/libertine"
-BUG_REPORT_URL="https://github.com/libertine-linux/libertine/issues"
+../usr/lib/os-release
