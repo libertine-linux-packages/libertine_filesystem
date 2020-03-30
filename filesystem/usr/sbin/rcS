@@ -71,7 +71,7 @@ libertine_rcS_redirectStandardOutAndStandardError()
 
 libertine_rcS_mountVirtualFilesystems()
 {
-	_libertine_rcS_mount proc proc /proc rw,nosuid,nodev,noexec,relatime
+	_libertine_rcS_mount proc proc /proc rw,nosuid,nodev,noexec,relatime,hidepid=2
 	
 	_libertine_rcS_mount sysfs sys /sys rw,nosuid,nodev,noexec,relatime
 	
