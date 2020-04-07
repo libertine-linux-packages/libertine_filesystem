@@ -256,6 +256,12 @@ libertine_rcS_readDefaults()
 			keepTrying=false
 		fi
 	fi
+	if [ -s /proc/sys/kernel/hostname ]; then
+		if _libertine_rcS_hasBinaryInPath cat; then
+			libertine_rcS_hostName="$(cat /proc/sys/kernel/hostname)"
+			keepTrying=false
+		fi
+	fi
 	if $keepTrying; then
 		if _libertine_rcS_hasBinaryInPath hostname; then
 			local x="$(hostname)"
@@ -271,6 +277,12 @@ libertine_rcS_readDefaults()
 	if [ -s /etc/dnsdomainname ]; then
 		if _libertine_rcS_hasBinaryInPath cat; then
 			libertine_rcS_dnsDomainName="$(cat /etc/dnsdomainname)"
+			keepTrying=false
+		fi
+	fi
+	if [ -s /proc/sys/kernel/hostname ]; then
+		if _libertine_rcS_hasBinaryInPath cat; then
+			libertine_rcS_hostName="$(cat /proc/sys/kernel/dnsdomainname)"
 			keepTrying=false
 		fi
 	fi
